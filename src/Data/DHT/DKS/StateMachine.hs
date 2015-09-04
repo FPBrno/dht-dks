@@ -155,6 +155,7 @@ instance Default StateMachine where
 
             EventGrantLeave ->
                 StateLeaveRequest ~> StateLeaving
+                    -- StateLeaving is terminal state.
 
             EventPredecessorLeaveRequest ->
                 StateInside ~> StatePredecessorLeaveRequest
@@ -219,3 +220,35 @@ stepIORef refSm event signalHandler =
     atomicModifyIORef' refSm (step event) >>= signalHandler
 
 -- }}} StateMachine -----------------------------------------------------------
+
+{-
+State diagram in PlantUML format, see http://plantuml.com/state.html for
+details.
+
+@startuml
+
+[*] -> StateInitialized
+
+note right of StateInitialized
+  It is possible to get back in to StateInitialized,
+  this includes StateInitialized itself, using EventReset.
+  These transitions are omitted from this diagram to
+  reduce noise.
+end note
+
+StateInitialized --> StateJoinRequest: EventJoinRequest
+StateJoinRequest --> StateJoinRequest: EventJoinRetry
+StateJoinRequest --> StateJoining: EventJoinPoint
+StateInitialized --> StateInside: EventSelfJoinDone
+StateJoining --> StateInside: EventJoinDone
+StateInside --> StateLeaveRequest: EventLeaveRequest
+StateLeaveRequest --> StateInside: EventLeaveRetry
+StateLeaveRequest --> StateLeaving: EventGrantLeave
+StateInside --> StatePredecessorLeaveRequest: EventPredecessorLeaveRequest
+StatePredecessorLeaveRequest --> StatePredecessorLeaving: EventPredecessorLeavePoint
+StatePredecessorLeaving --> StateInside: EventPredecessorLeaveDone
+
+StateLeaving --> [*]
+
+@enduml
+-}
