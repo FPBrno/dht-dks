@@ -3,7 +3,7 @@
 -- |
 -- Module:       $HEADER$
 -- Description:  TODO
--- Copyright:    (c) 2015, Peter Trško
+-- Copyright:    (c) 2015, Jan Šipr, Matej Kollár, Peter Trško
 -- License:      BSD3
 --
 -- Stability:    experimental
