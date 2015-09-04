@@ -17,10 +17,8 @@ just run following command from root directory of this repository:
 
 [PlantUML]:
   http://plantuml.net/
-  "PlantUML: Open-source tool that uses simple textual descriptions to draw UML
-  diagrams."
+  "PlantUML: Open-source tool that uses simple textual descriptions to draw UML diagrams."
 
 [PlantUML Download]:
   http://plantuml.net/download.html
-  "Download PlantUML: Open-source tool that uses simple textual descriptions
-  to draw UML diagrams."
+  "Download PlantUML: Open-source tool that uses simple textual descriptions to draw UML diagrams."
