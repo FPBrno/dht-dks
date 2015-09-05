@@ -227,7 +227,7 @@ details.
 
 @startuml
 
-[*] -> StateInitialized
+[*] --> StateInitialized
 
 note right of StateInitialized
   It is possible to get back in to StateInitialized,
