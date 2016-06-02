@@ -5,7 +5,7 @@
 -- |
 -- Module:       $HEADER$
 -- Description:  TODO
--- Copyright:    (c) 2015, Jan Šipr, Matej Kollár, Peter Trško
+-- Copyright:    (c) 2015 Jan Šipr, Matej Kollár; 2015-2016 Peter Trško
 -- License:      BSD3
 --
 -- Stability:    experimental
@@ -15,29 +15,43 @@
 module Data.DHT.DKS.Type.Params
   where
 
-import Data.Bool (Bool(True))
-import Data.Functor (Functor, (<$>))
+import Control.Applicative (pure)
+import Control.Concurrent (ThreadId, forkIO)
+import qualified Control.Concurrent as Concurrent (yield)
+import Data.Bool (Bool(False))
+import Data.Either (Either(Right))
+import Data.Maybe (Maybe(Nothing))
 import Data.Typeable (Typeable)
 import GHC.Generics (Generic)
-import Text.Show (Show)
+import System.IO (IO)
 
 import Data.Default.Class (Default(def))
+import System.Lumberjack.Backend (SomeLoggingBackend)
+
+import Data.DHT.DKS.Type.EVar (EVarIO)
+import Data.DHT.DKS.Type.Hash (DksHash)
 
 
 data DksParams = DksParams
-    { _singleton :: Bool
+    { _runThread :: !(IO () -> IO ThreadId)
+    , _yield :: IO ()
+    , _logging :: !SomeLoggingBackend
+
+    , _discovery :: !(EVarIO (Maybe DksHash))
+    -- ^ Discover an entry node to which join request can be sent.
+
+    , _singleton :: !Bool
+    -- ^ Force self join, '_discovery' is not even executed.
+
+--  , _initStorage :: EVarIO SomeStorage
     }
-  deriving (Generic, Show, Typeable)
+  deriving (Generic, Typeable)
 
-singleton :: Functor f => (Bool -> f Bool) -> DksParams -> f DksParams
-singleton f params@DksParams{_singleton} =
-    (\b -> params{_singleton = b}) <$> f _singleton
-
--- |
--- @
--- 'def' = 'DksParams'
---     { '_singleton' = True
---     }
--- @
 instance Default DksParams where
-    def = DksParams True
+    def = DksParams
+        { _runThread = forkIO
+        , _yield = Concurrent.yield
+        , _logging = def  -- No logging.
+        , _discovery = pure (Right Nothing)
+        , _singleton = False
+        }

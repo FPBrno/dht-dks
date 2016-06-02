@@ -3,11 +3,11 @@
 -- |
 -- Module:       $HEADER$
 -- Description:  TODO
--- Copyright:    (c) 2015, Jan Šipr, Matej Kollár, Peter Trško
+-- Copyright:    (c) 2015 Jan Šipr, Matej Kollár; 2015-2016 Peter Trško
 -- License:      BSD3
 --
 -- Stability:    experimental
--- Portability:  NamedFieldPuns, NoImplicitPrelude
+-- Portability:  GHC specific language extensions.
 --
 -- TODO
 module Data.DHT.DKS
@@ -17,70 +17,67 @@ module Data.DHT.DKS
 
     -- ** DKS Parameters
     , DksParams
-    , singleton
     )
   where
 
-import Prelude (undefined)
-
-import Control.Monad (Monad((>>)))
-import Data.Bool (Bool)
-import Data.Function (($))
-import Data.Functor ((<$>))
-import System.IO (IO, print)
+import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar)
+import Control.Exception (SomeException)
+import Control.Monad (Monad((>>=)))
+import Data.Either (Either)
+import Data.Function (($), const, id)
+import Data.Functor ((<$), (<$>))
+import Data.Maybe (Maybe(Just))
+import System.IO (IO)
 
 import Data.DHT.Type.Handle
     ( DhtHandle(DhtHandle)
-    , DhtHandle'(DhtHandle', insert, join, leave, lookup, state)
+    , DhtHandle'(DhtHandle', hash, insert, join, leave, lookup, state)
     )
 import Data.DHT.Type.Key (DhtKey)
-import Data.DHT.Type.Result (DhtResult, result_)
-import Data.DHT.Type.Value (DhtValue)
+import Data.DHT.Type.Result (DhtResult, DhtResultVar(DhtResultVar))
+import Data.DHT.Type.Encoding (Encoding)
 
-import Data.DHT.DKS.StateMachine
-    ( Event(EventJoinRequest, EventLeaveRequest, EventSelfJoinDone)
-    , Signal
-    , stepIORef
+import Data.DHT.DKS.Internal
+    ( DksHandle
+    , dksInsert
+    , dksJoin
+    , dksLeave
+    , dksLookup
+    , newDksHandle
     )
-import Data.DHT.DKS.Type.Params (DksParams(_singleton), singleton)
-import Data.DHT.DKS.Type.State
-    ( DksState(DksState, _signalHandler, _stateMachine)
-    , newDksState
-    )
+import Data.DHT.DKS.Type.Hash (DksHash)
+import Data.DHT.DKS.Type.MessageChannel (DksMessageChannel)
+import Data.DHT.DKS.Type.Params (DksParams)
 
 
-newDks :: DksParams -> IO DhtHandle
-newDks params = mkDhtHandle <$> newDksState dksSignalHandler
+newDks :: DksMessageChannel chan => chan -> DksParams -> DksHash -> IO DhtHandle
+newDks chan params node = mkDhtHandle <$> newDksHandle chan params node
   where
     mkDhtHandle s = DhtHandle DhtHandle'
         { state  = s
-        , join   = joinImpl (_singleton params)
+        , hash   = const id
+        , join   = joinImpl
         , leave  = leaveImpl
         , lookup = lookupImpl
         , insert = insertImpl
         }
 
-dksSignalHandler :: Signal -> IO ()
-dksSignalHandler = print
+withDhtResult :: (MVar (Either SomeException a) -> IO ()) -> DhtResult IO a
+withDhtResult f = newEmptyMVar >>= \v -> DhtResultVar v <$ f v
 
-stepDksState :: DksState -> Event -> IO ()
-stepDksState DksState{_stateMachine, _signalHandler} event =
-    stepIORef _stateMachine event _signalHandler
+joinImpl :: DksHandle -> DhtResult IO ()
+joinImpl h = withDhtResult $ \v -> dksJoin (done v) h
 
-joinImpl :: Bool -> DksState -> DhtResult IO ()
-joinImpl doSelfJoin dksState = do
-    stepDksState dksState
-        $ if doSelfJoin
-            then EventSelfJoinDone
-            else EventJoinRequest
-    -- TODO: Should this block until we reach StateInside?
-    result_
+leaveImpl :: DksHandle -> DhtResult IO ()
+leaveImpl h = withDhtResult $ \v -> dksLeave (Just (done v)) h
 
-leaveImpl :: DksState -> DhtResult IO ()
-leaveImpl dksState = stepDksState dksState EventLeaveRequest >> result_
+lookupImpl :: DksHandle -> DhtKey -> DhtResult IO Encoding
+lookupImpl h k = withDhtResult $ \v ->
+    dksLookup (done v) h k
 
-lookupImpl :: DksState -> DhtKey -> DhtResult IO DhtValue
-lookupImpl = undefined
+insertImpl :: DksHandle -> DhtKey -> Encoding -> DhtResult IO ()
+insertImpl s k e = withDhtResult $ \v ->
+    dksInsert (Just (done v)) s k e
 
-insertImpl :: DksState -> DhtKey -> DhtValue -> DhtResult IO ()
-insertImpl = undefined
+done :: MVar (Either SomeException a) -> Either SomeException a -> IO ()
+done v = putMVar v

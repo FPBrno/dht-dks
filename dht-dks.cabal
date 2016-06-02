@@ -7,7 +7,7 @@ license:                BSD3
 license-file:           LICENSE
 author:                 Jan Šipr, Matej Kollár, Peter Trško
 maintainer:             peter.trsko@gmail.com
-copyright:              (c) 2015, Jan Šipr, Matej Kollár, Peter Trško
+copyright:              (c) 2015 Jan Šipr, Matej Kollár; 2015-2016 Peter Trško
 category:               Data
 build-type:             Simple
 cabal-version:          >=1.10
@@ -23,10 +23,22 @@ library
   hs-source-dirs:       src
   exposed-modules:
       Data.DHT.DKS
-    , Data.DHT.DKS.Type.Params
-    , Data.DHT.DKS.Type.State
+    , Data.DHT.DKS.Internal
+    , Data.DHT.DKS.Type.Node
+    , Data.DHT.DKS.Type.Hash
+--  , Data.DHT.DKS.Type.Params
+--  , Data.DHT.DKS.Type.State
     , Data.DHT.DKS.Type.Storage
-    , Data.DHT.DKS.StateMachine
+    , Data.DHT.DKS.Type.DksState
+    , Data.DHT.DKS.Type.Message
+    , Data.DHT.DKS.Type.Message.JoinDone
+    , Data.DHT.DKS.Type.Message.JoinPoint
+    , Data.DHT.DKS.Type.Message.JoinRequest
+    , Data.DHT.DKS.Type.Message.JoinRetry
+    , Data.DHT.DKS.Type.Message.NewSuccessor
+    , Data.DHT.DKS.Type.Message.NewSuccessorAck
+    , Data.DHT.DKS.Type.MessageChannel
+
   -- other-modules:
 
   default-language:     Haskell2010
@@ -37,15 +49,34 @@ library
     , NoImplicitPrelude
 
   build-depends:
-    -- {{{ Distributed with GHC or Haskell Platform ---------------------------
       base >=4.6 && <4.9
-    , unordered-containers ==0.2.*
-    -- }}} Distributed with GHC or Haskell Platform ---------------------------
 
+    , byteable ==0.1.*
+    , bytestring ==0.10.*
+    , cryptohash ==0.10.* || ==0.11.*
     , data-default-class ==0.0.*
+    , endo ==0.3.*
+    , hashable >=1.0.1.1 && <1.3
+    -- ^ Constraint taken from unordered-containers ==0.2.7.0.
+    , memory >=0.8 && <1
+    , mtl ==2.*
+    , stm ==2.4.*
+    , text >=1.1 && <2
+    , unagi-chan ==0.4.*
+    , unordered-containers ==0.2.*
+    , overloaded-records >=0.4.1.0 && <1
+
+    , logstr
+    , lumberjack-core
+    , lumberjack-fast-logger
+
     , dht-api ==0.1.*
 
   ghc-options:          -Wall -fwarn-tabs
+
+  if impl(ghc <8)
+    -- Control.Monad.IO.Class
+    build-depends:      transformers
 
   if flag(pedantic)
     ghc-options:
@@ -71,19 +102,17 @@ test-suite unit-tests
 
   build-depends:
     -- {{{ Dependencies of library --------------------------------------------
-    -- {{{ Distributed with GHC or Haskell Platform ---------------------------
       base >=4.6 && <4.9
-    , unordered-containers ==0.2.*
-    -- }}} Distributed with GHC or Haskell Platform ---------------------------
-
     , data-default-class ==0.0.*
+    , unordered-containers ==0.2.*
+
     , dht-api ==0.1.*
     -- }}} Dependencies of library --------------------------------------------
 
     -- {{{ Test-suite dependencies --------------------------------------------
     , HUnit >=1.2 && <2
       -- ^ Same constraints as test-framework-hunit
-    , QuickCheck >=2.6 && <2.7
+    , QuickCheck >=2.6 && <2.9
     , test-framework >=0.8 && <1
       -- ^ Same constraint as test-framework-skip, other packages that
       -- depend on it have less restrictive bounds.

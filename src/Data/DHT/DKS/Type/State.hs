@@ -3,11 +3,11 @@
 -- |
 -- Module:       $HEADER$
 -- Description:  TODO
--- Copyright:    (c) 2015, Jan Šipr, Matej Kollár, Peter Trško
+-- Copyright:    (c) 2015 Jan Šipr, Matej Kollár, Peter Trško
 -- License:      BSD3
 --
 -- Stability:    experimental
--- Portability:  DeriveDataTypeable, NoImplicitPrelude
+-- Portability:  GHC specific language extensions.
 --
 -- TODO
 module Data.DHT.DKS.Type.State

@@ -6,12 +6,11 @@
 -- |
 -- Module:       $HEADER$
 -- Description:  TODO
--- Copyright:    (c) 2015, Jan Šipr, Matej Kollár, Peter Trško
+-- Copyright:    (c) 2015 Jan Šipr, Matej Kollár, Peter Trško
 -- License:      BSD3
 --
 -- Stability:    experimental
--- Portability:  DeriveDataTypeable, DeriveGeneric, NamedFieldPuns,
---               NoImplicitPrelude, TupleSections
+-- Portability:  GHC specific language extensions.
 --
 -- TODO
 module Data.DHT.DKS.Type.Storage
@@ -33,8 +32,9 @@ import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HashMap (empty, insert, lookup)
 
 import Data.Default.Class (Default(def))
-import Data.DHT.Type.Key (DhtKey)
-import Data.DHT.Type.Value (DhtValue)
+import Data.DHT.Type.Encoding (Encoding)
+
+import Data.DHT.DKS.Type.Hash (DksHash)
 
 
 newtype DksStorage = DksStorage (IORef DksStorage_)
@@ -43,10 +43,10 @@ newtype DksStorage = DksStorage (IORef DksStorage_)
 newDksStorage :: IO DksStorage
 newDksStorage = DksStorage <$> newIORef def
 
-lookup :: DksStorage -> DhtKey -> IO (Maybe DhtValue)
+lookup :: DksStorage -> DksHash -> IO (Maybe Encoding)
 lookup (DksStorage ref) k = (`lookup'` k) <$> readIORef ref
 
-insert :: DhtKey -> DhtValue -> DksStorage -> IO ()
+insert :: DksHash -> Encoding -> DksStorage -> IO ()
 insert k v (DksStorage ref) = atomicModifyIORef' ref $ (, ()) <$> insert' k v
 
 -- {{{ DksStorage_ -- Pure storage --------------------------------------------
@@ -59,7 +59,7 @@ data DksStorage_ = DksStorage_
     , _usedMemory :: {-# UNPACK #-} !Word64
     -- ^ Approximation of how much memory 'HashMap' in '_storage' uses.
 
-    , _storage :: HashMap DhtKey DhtValue
+    , _storage :: HashMap DksHash Encoding
     }
   deriving ({-Data, -}Generic, {-Show, -}Typeable)
     -- Data and Show can be derived only if DataValue has instances for them.
@@ -71,10 +71,10 @@ instance Default DksStorage_ where
         , _storage = HashMap.empty
         }
 
-lookup' :: DksStorage_ -> DhtKey -> Maybe DhtValue
+lookup' :: DksStorage_ -> DksHash -> Maybe Encoding
 lookup' DksStorage_{_storage} k = HashMap.lookup k _storage
 
-insert' :: DhtKey -> DhtValue -> DksStorage_ -> DksStorage_
+insert' :: DksHash -> Encoding -> DksStorage_ -> DksStorage_
 insert' k v DksStorage_{_objectCounter, _usedMemory, _storage} = DksStorage_
     { _objectCounter = _objectCounter + 1
     , _usedMemory = _usedMemory -- TODO: + memoryUsage k + memoryUsage v

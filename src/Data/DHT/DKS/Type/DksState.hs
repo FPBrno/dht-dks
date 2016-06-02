@@ -28,10 +28,9 @@ import Prelude (Bounded, Enum)
 import Data.Bool (Bool(False), otherwise)
 import Data.Data (Data, Typeable)
 import Data.Eq (Eq((==)))
-import Data.Function ((.))
 import Data.Maybe (Maybe(Nothing))
 import GHC.Generics (Generic)
-import Text.Show (Show(showsPrec), shows, showString)
+import Text.Show (Show)
 
 import Data.Default.Class (Default(def))
 import Data.Monoid.Endo (E)
@@ -125,13 +124,7 @@ data DksState = DksState
     , _oldPredecessor :: !(Maybe DksHash)
     , _successor :: !(Maybe DksHash)
     }
-  deriving (Generic, Typeable)
-
-instance Show DksState where
-    showsPrec _ (DksState{_currentState}) =
-        showString "<<DksState{currentState = "
-        . shows _currentState
-        . showString ">>"
+  deriving (Generic, Show, Typeable)
 
 instance Default DksState where
     def = DksState
