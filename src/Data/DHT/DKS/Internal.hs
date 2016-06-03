@@ -242,7 +242,8 @@ data DksHandle = DksHandle
 
 instance Show DksHandle where
     showsPrec _ DksHandle{_self = self} =
-        showString "{implementation = DKS, self = " . shows self . showChar '}'
+        showString "DhtHandle{implementation = DKS, self = " . shows self
+        . showChar '}'
 
 -- | Smart constructor for 'DksHandle'.
 mkDksHandle

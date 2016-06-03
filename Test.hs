@@ -1,4 +1,5 @@
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TupleSections #-}
 -- |
@@ -14,15 +15,20 @@
 module Test
   where
 
-import Control.Concurrent (ThreadId, forkIO, threadDelay)
+import Control.Concurrent (ThreadId, forkIO{-, threadDelay-})
 import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TChan (TChan, dupTChan, newTChanIO, readTChan)
 import Control.Exception (finally)
-import Control.Monad (forever)
+import Control.Monad ((>>=), forever, return)
+import Data.Either (Either(Left, Right))
+import Data.Function (($), (.))
+import Data.Functor ((<$>))
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
-import Data.Maybe (fromMaybe)
+import Data.Maybe (Maybe(Just, Nothing), fromMaybe)
 import Data.String (IsString(fromString))
+import System.IO (IO)
 import System.IO.Unsafe (unsafePerformIO)
+import Text.Show (Show(show))
 
 import Data.Default.Class (Default(def))
 import Data.HashMap.Strict (HashMap)
@@ -39,12 +45,17 @@ import System.Lumberjack.Backend
 import System.Lumberjack.FastLogger (fastLogger)
 
 import Data.DHT.DKS.Internal
+    ( DksHandle
+    , newDksHandle
+    )
+import Data.DHT.DKS.Type.EVar (EVarIO, success)
 import Data.DHT.DKS.Type.Hash (DksHash, dksHash)
 import Data.DHT.DKS.Type.Message
     ( DksMessage(DksMessage, _header)
     , DksMessageHeader(DksMessageHeader, _to)
     )
 import Data.DHT.DKS.Type.MessageChannel (StmMessageChannel(StmMessageChannel))
+import Data.DHT.DKS.Type.Params (DksParams(_discovery, _logging))
 
 
 node1, node2, node3 :: DksHash
@@ -125,6 +136,7 @@ newDksChan = StmMessageChannel insertChan . _networkBus <$> readIORef state
 --
 -- > stack ghci
 -- > ghci> :l Test.hs
+-- > ghci> import Data.DHT.DKS.Internal
 -- > ghci> startNetworkMain
 -- > ghci> --
 -- > ghci> h1 <- test node1
@@ -141,7 +153,7 @@ test node = do
     dksChan <- newDksChan
     let opts = def
             { _logging = l
-            , _yield = threadDelay 10000000
+--          , _yield = threadDelay 10000000
             , _discovery = discoverNode node
             }
     newDksHandle dksChan opts node

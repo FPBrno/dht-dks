@@ -24,12 +24,9 @@ library
   exposed-modules:
       Data.DHT.DKS
     , Data.DHT.DKS.Internal
-    , Data.DHT.DKS.Type.Node
-    , Data.DHT.DKS.Type.Hash
---  , Data.DHT.DKS.Type.Params
---  , Data.DHT.DKS.Type.State
-    , Data.DHT.DKS.Type.Storage
     , Data.DHT.DKS.Type.DksState
+    , Data.DHT.DKS.Type.EVar
+    , Data.DHT.DKS.Type.Hash
     , Data.DHT.DKS.Type.Message
     , Data.DHT.DKS.Type.Message.JoinDone
     , Data.DHT.DKS.Type.Message.JoinPoint
@@ -38,6 +35,9 @@ library
     , Data.DHT.DKS.Type.Message.NewSuccessor
     , Data.DHT.DKS.Type.Message.NewSuccessorAck
     , Data.DHT.DKS.Type.MessageChannel
+    , Data.DHT.DKS.Type.Params
+--  , Data.DHT.DKS.Type.State
+    , Data.DHT.DKS.Type.Storage
 
   -- other-modules:
 
