@@ -29,13 +29,20 @@ library
     , Data.DHT.DKS.Type.EVar
     , Data.DHT.DKS.Type.Hash
     , Data.DHT.DKS.Type.Message
-    , Data.DHT.DKS.Type.MessageChannel
+    , Data.DHT.DKS.Type.Message.GrantLeave
     , Data.DHT.DKS.Type.Message.JoinDone
     , Data.DHT.DKS.Type.Message.JoinPoint
     , Data.DHT.DKS.Type.Message.JoinRequest
     , Data.DHT.DKS.Type.Message.JoinRetry
+    , Data.DHT.DKS.Type.Message.LeaveDone
+    , Data.DHT.DKS.Type.Message.LeavePoint
+    , Data.DHT.DKS.Type.Message.LeaveRequest
+    , Data.DHT.DKS.Type.Message.LeaveRetry
     , Data.DHT.DKS.Type.Message.NewSuccessor
     , Data.DHT.DKS.Type.Message.NewSuccessorAck
+    , Data.DHT.DKS.Type.Message.UpdateSuccessor
+    , Data.DHT.DKS.Type.Message.UpdateSuccessorAck
+    , Data.DHT.DKS.Type.MessageChannel
     , Data.DHT.DKS.Type.Params
     , Data.DHT.DKS.Type.State
     , Data.DHT.DKS.Type.Storage
