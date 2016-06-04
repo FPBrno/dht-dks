@@ -36,12 +36,19 @@ import Data.Default.Class (Default(def))
 import Data.OverloadedRecords.TH (overloadedRecord)
 
 import Data.DHT.DKS.Type.Hash (DksHash)
+import Data.DHT.DKS.Type.Message.GrantLeave (GrantLeave)
 import Data.DHT.DKS.Type.Message.JoinDone (JoinDone)
 import Data.DHT.DKS.Type.Message.JoinPoint (JoinPoint)
 import Data.DHT.DKS.Type.Message.JoinRequest (JoinRequest)
 import Data.DHT.DKS.Type.Message.JoinRetry (JoinRetry)
+import Data.DHT.DKS.Type.Message.LeaveDone (LeaveDone)
+import Data.DHT.DKS.Type.Message.LeavePoint (LeavePoint)
+import Data.DHT.DKS.Type.Message.LeaveRequest (LeaveRequest)
+import Data.DHT.DKS.Type.Message.LeaveRetry (LeaveRetry)
 import Data.DHT.DKS.Type.Message.NewSuccessorAck (NewSuccessorAck)
 import Data.DHT.DKS.Type.Message.NewSuccessor (NewSuccessor)
+import Data.DHT.DKS.Type.Message.UpdateSuccessorAck (UpdateSuccessorAck)
+import Data.DHT.DKS.Type.Message.UpdateSuccessor (UpdateSuccessor)
 
 
 data DksMessageHeader = DksMessageHeader
@@ -64,12 +71,13 @@ data DksMessageBody
     -- }}} Joining ------------------------------------------------------------
 
     -- {{{ Leaving ------------------------------------------------------------
-    | LeaveRequestBody
-    | GrantLeaveBody
-    | LeavePointBody
-    | UpdateSuccessorBody
-    | UpdateSuccessorAckBody
-    | LeaveDoneBody
+    | LeaveRequestBody LeaveRequest
+    | LeaveRetryBody LeaveRetry
+    | GrantLeaveBody GrantLeave
+    | LeavePointBody LeavePoint
+    | UpdateSuccessorBody UpdateSuccessor
+    | UpdateSuccessorAckBody UpdateSuccessorAck
+    | LeaveDoneBody LeaveDone
     -- }}} Leaving ----------------------------------------------------------------
   deriving (Eq, Generic, Show, Typeable)
 
@@ -88,6 +96,8 @@ overloadedRecord def ''DksMessage
 class IsDksMessage a where
     dksMessage :: DksMessageHeader -> a -> DksMessage
 
+-- {{{ Joining ----------------------------------------------------------------
+
 instance IsDksMessage JoinRequest where
     dksMessage h = DksMessage h . JoinRequestBody
 
@@ -105,3 +115,30 @@ instance IsDksMessage NewSuccessor where
 
 instance IsDksMessage NewSuccessorAck where
     dksMessage h = DksMessage h . NewSuccessorAckBody
+
+-- }}} Joining ----------------------------------------------------------------
+
+-- {{{ Leaving ----------------------------------------------------------------
+
+instance IsDksMessage LeaveRequest where
+    dksMessage h = DksMessage h . LeaveRequestBody
+
+instance IsDksMessage LeaveRetry where
+    dksMessage h = DksMessage h . LeaveRetryBody
+
+instance IsDksMessage GrantLeave where
+    dksMessage h = DksMessage h . GrantLeaveBody
+
+instance IsDksMessage LeavePoint where
+    dksMessage h = DksMessage h . LeavePointBody
+
+instance IsDksMessage LeaveDone where
+    dksMessage h = DksMessage h . LeaveDoneBody
+
+instance IsDksMessage UpdateSuccessor where
+    dksMessage h = DksMessage h . UpdateSuccessorBody
+
+instance IsDksMessage UpdateSuccessorAck where
+    dksMessage h = DksMessage h . UpdateSuccessorAckBody
+
+-- }}} Leaving ----------------------------------------------------------------
