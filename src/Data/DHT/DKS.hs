@@ -17,6 +17,9 @@ module Data.DHT.DKS
 
     -- ** DKS Parameters
     , DksParams
+    , discovery
+    , singleton
+    , logging
     )
   where
 
@@ -47,7 +50,7 @@ import Data.DHT.DKS.Internal
     )
 import Data.DHT.DKS.Type.Hash (DksHash)
 import Data.DHT.DKS.Type.MessageChannel (DksMessageChannel)
-import Data.DHT.DKS.Type.Params (DksParams)
+import Data.DHT.DKS.Type.Params (DksParams, discovery, logging, singleton)
 
 
 newDks :: DksMessageChannel chan => chan -> DksParams -> DksHash -> IO DhtHandle
