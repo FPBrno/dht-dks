@@ -4,6 +4,7 @@
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TupleSections #-}
 -- |
 -- Module:       $HEADER$
 -- Description:  TODO
@@ -76,7 +77,7 @@ module Data.DHT.DKS.Internal.Monad
     )
   where
 
-import Control.Monad (Monad((>>=)), return)
+import Control.Monad (Monad((>>=)), (>>), return)
 import Control.Monad.IO.Class (MonadIO(liftIO))
 import Control.Exception (Exception(toException), SomeException)
 import Data.Eq (Eq)
@@ -133,7 +134,7 @@ instance Exception DksException
 -- {{{ ThreadState ------------------------------------------------------------
 
 data DksCallbacks = DksCallbacks
-    { _onJoin :: EVar () -> IO ()
+    { _onJoin :: EVar (Maybe DksHash, Maybe DksHash) -> IO ()
     , _onLeave :: EVar () -> IO ()
     , _onSuccessorChange :: Maybe DksHash -> Maybe DksHash -> IO ()
     , _onPredecessorChange :: Maybe DksHash -> Maybe DksHash -> IO ()
@@ -151,13 +152,19 @@ mkThreadState :: DksParams -> IO ThreadState
 mkThreadState _opts = return ThreadState
     { _dksState = def
     , _callbacks = DksCallbacks
-        { _onJoin = const $ return ()
-        , _onLeave = const $ return ()
-        , _onSuccessorChange = \_ _ -> return ()
-        , _onPredecessorChange = \_ _ -> return ()
+        { _onJoin = defaultCallback1
+        , _onLeave = defaultCallback1
+        , _onSuccessorChange = defaultCallback2
+        , _onPredecessorChange = defaultCallback2
         , _onLookupResult = HashMap.empty
         }
     }
+
+defaultCallback1 :: a -> IO ()
+defaultCallback1 = const $ return ()
+
+defaultCallback2 :: a -> b -> IO ()
+defaultCallback2 _ = defaultCallback1
 
 -- | Mutable 'ThreadState' that exposes only read and (atomic) modify
 -- operations.
@@ -321,38 +328,76 @@ stepDksState event f = do
 
 -- {{{ Callbacks --------------------------------------------------------------
 
-registerOnJoinCallback :: (EVar () -> IO ()) -> DksM ()
-registerOnJoinCallback _ = return ()                -- TODO
+updateCallbacks :: (DksCallbacks -> (DksCallbacks, r)) -> DksM r
+updateCallbacks f = do
+    modifyState <- asks (_modifyThreadState . _mutableState)
+    liftIO . modifyState $ \s ->
+        let (cs, r) = f (_callbacks s)
+        in (s{_callbacks = cs}, r)
+
+getCallback :: (DksCallbacks -> a) -> DksM a
+getCallback f = do
+    getState <- asks (_getThreadState . _mutableState)
+    f . _callbacks <$> liftIO getState
+
+registerOnJoinCallback
+    :: (EVar (Maybe DksHash, Maybe DksHash) -> IO ())
+    -> DksM ()
+registerOnJoinCallback callback = updateCallbacks $ \s -> (, ()) s
+    { _onJoin = \r -> _onJoin s r >> callback r
+    }
 
 joinSuccess :: Maybe DksHash -> Maybe DksHash -> DksM ()
-joinSuccess _pred _succ = return ()                 -- TODO
+joinSuccess pred succ = do
+    onJoin <- updateCallbacks $ \cs ->
+        (cs{_onJoin = defaultCallback1}, _onJoin cs)
+    liftIO . onJoin $ Right (pred, succ)
 
 joinFailure :: SomeException -> DksM ()
-joinFailure _e = return ()                          -- TODO
+joinFailure e =  do
+    callback <- updateCallbacks $ \cs ->
+        (cs{_onJoin = defaultCallback1}, _onJoin cs)
+    liftIO . callback $ Left e
 
 registerOnLeaveCallback :: (EVar () -> IO ()) -> DksM ()
-registerOnLeaveCallback _ = return ()               -- TODO
+registerOnLeaveCallback callback = updateCallbacks $ \s -> (, ()) s
+    { _onLeave = \r -> _onLeave s r >> callback r
+    }
 
 leaveSuccess :: DksM ()
-leaveSuccess = return () -- TODO
+leaveSuccess = do
+    callback <- updateCallbacks $ \cs ->
+        (cs{_onLeave = defaultCallback1}, _onLeave cs)
+    liftIO . callback $ Right ()
 
 leaveFailure :: SomeException -> DksM ()
-leaveFailure _e = return ()                         -- TODO
+leaveFailure e = do
+    callback <- updateCallbacks $ \cs ->
+        (cs{_onLeave = defaultCallback1}, _onLeave cs)
+    liftIO . callback $ Left e
 
 registerOnSuccessorChangeCallback
     :: (Maybe DksHash -> Maybe DksHash -> IO ())
     -> DksM ()
-registerOnSuccessorChangeCallback _ = return ()     -- TODO
+registerOnSuccessorChangeCallback callback = updateCallbacks $ \s -> (, ()) s
+    { _onSuccessorChange = \r -> _onSuccessorChange s r >> callback r
+    }
 
 successorChanged :: Maybe DksHash -> Maybe DksHash -> DksM ()
-successorChanged _oldSucc _succ = return ()         -- TODO
+successorChanged oldSucc succ = do
+    callback <- getCallback _onSuccessorChange
+    liftIO $ callback oldSucc succ
 
 registerOnPredecessorChangeCallback
     :: (Maybe DksHash -> Maybe DksHash -> IO ())
     -> DksM ()
-registerOnPredecessorChangeCallback _ = return ()   -- TODO
+registerOnPredecessorChangeCallback callback = updateCallbacks $ \s -> (, ()) s
+    { _onPredecessorChange = \r -> _onPredecessorChange s r >> callback r
+    }
 
 predecessorChanged :: Maybe DksHash -> Maybe DksHash -> DksM ()
-predecessorChanged _oldPred _pred = return ()       -- TODO
+predecessorChanged oldPred pred = do
+    callback <- getCallback _onSuccessorChange
+    liftIO $ callback oldPred pred
 
 -- }}} Callbacks --------------------------------------------------------------

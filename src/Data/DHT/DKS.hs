@@ -22,9 +22,9 @@ module Data.DHT.DKS
 
 import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar)
 import Control.Exception (SomeException)
-import Control.Monad (Monad((>>=)))
+import Control.Monad (Monad((>>=)), void)
 import Data.Either (Either)
-import Data.Function (($), const, id)
+import Data.Function (($), (.), const, id)
 import Data.Functor ((<$), (<$>))
 import Data.Maybe (Maybe(Just))
 import System.IO (IO)
@@ -66,7 +66,7 @@ withDhtResult :: (MVar (Either SomeException a) -> IO ()) -> DhtResult IO a
 withDhtResult f = newEmptyMVar >>= \v -> DhtResultVar v <$ f v
 
 joinImpl :: DksHandle -> DhtResult IO ()
-joinImpl h = withDhtResult $ \v -> dksJoin (done v) h
+joinImpl h = withDhtResult $ \v -> dksJoin (done v . void) h
 
 leaveImpl :: DksHandle -> DhtResult IO ()
 leaveImpl h = withDhtResult $ \v -> dksLeave (Just (done v)) h

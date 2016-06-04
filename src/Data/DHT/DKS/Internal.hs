@@ -17,7 +17,6 @@
 module Data.DHT.DKS.Internal
   where
 
---import Control.Applicative (Applicative((<*>)))
 import Control.Concurrent (ThreadId)
 import Control.Exception (throwIO)
 import Control.Monad (Monad((>>=)), (>>), forever, return)
@@ -38,7 +37,6 @@ import Control.Concurrent.Chan.Unagi
     , writeChan
     )
 import Data.DHT (DhtKey, Encoding)
---import Data.HashMap.Strict (HashMap)
 import Data.LogStr.Formatting ((%), shown)
 import System.Lumberjack.Backend (pushLogStrLn)
 

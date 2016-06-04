@@ -153,7 +153,7 @@ import Data.DHT.DKS.Type.State
     )
 
 
-type OnJoin = EVar () -> IO ()
+type OnJoin = EVar (Maybe DksHash, Maybe DksHash) -> IO ()
 type OnLeave = EVar () -> IO ()
 
 type OnResult a = EVar a -> IO ()
@@ -198,17 +198,14 @@ handleJoin = handle joinFailure . \case
             , _oldPredecessor = Nothing
             }
         logf (hash % ": Self join successful.") self
-        successorChanged Nothing (Just self)
         predecessorChanged Nothing (Just self)
+        successorChanged Nothing (Just self)
         joinSuccess (Just self) (Just self)
 
     Just node -> do
-        stepDksState EventJoinRequest $ \s -> s
-            { _lock = True
-            , _predecessor = Nothing
-            , _successor = Nothing
-            , _oldPredecessor = Nothing
-            }
+        -- Entires _oldPredecessor, _predecessor, and _successor are kept on
+        -- their default value, which is Nothing.
+        stepDksState EventJoinRequest $ \s -> s{_lock = True}
         self <- getSelf
         logf (hash % ": Sending join request to " % hash) self node
         send $ dksMessage
@@ -361,6 +358,8 @@ handleJoinPoint msg@JoinPoint{JoinPoint._requester = rqstr} = do
                 { _predecessor = Just pred
                 , _successor = Just succ
                 }
+            predecessorChanged Nothing (Just pred)
+            successorChanged Nothing (Just succ)
             send $ dksMessage
                 DksMessageHeader{_to = pred, _from = self}
                 NewSuccessor
@@ -393,6 +392,7 @@ handleNewSuccessor msg@NewSuccessor{NewSuccessor._successor = newSucc} =
                 { _successor = Just newSucc
 --              , _oldSuccessor = oldSucc
                 }
+            successorChanged (Just oldSucc) (Just newSucc)
             self <- getSelf
             send $ dksMessage
                 DksMessageHeader{_to = oldSucc, _from = self}
@@ -444,9 +444,10 @@ handleNewSuccessorAck NewSuccessorAck{NewSuccessorAck._requester = rqstr} =
 -- {{{ JoinDone ---------------------------------------------------------------
 
 handleJoinDone :: JoinDone -> DksM ()
-handleJoinDone JoinDone{} = stepDksState EventJoinDone $ \s -> s
-    { _lock = False
-    }
+handleJoinDone JoinDone{} = handle joinFailure $ do
+    stepDksState EventJoinDone $ \s -> s{_lock = False}
+    (pred, succ) <- fromDksState $ \s -> (_predecessor s, _successor s)
+    joinSuccess pred succ
 
 -- $joinDoneDefinition
 --
