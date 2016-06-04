@@ -64,9 +64,11 @@ data Event
     | EventProcessingJoinRequest
     | EventNewSuccessor
     | EventNewSuccessorAck
+    | EventSelfLeaveDone
     | EventLeaveRequest
     | EventLeaveRetry
     | EventGrantLeave
+    | EventLeaveDone
     | EventPredecessorLeaveRequest
     | EventPredecessorLeavePoint
     | EventPredecessorLeaveDone
@@ -153,9 +155,11 @@ dksStateTransitionFunction cur event = case event of
     EventProcessingJoinRequest -> StateInside ~> StateInside
     EventNewSuccessor -> StateInside ~> StateInside
     EventNewSuccessorAck -> StateInside ~> StateInside
+    EventSelfLeaveDone -> StateInside ~> StateInitialized
     EventLeaveRequest -> StateInside ~> StateLeaveRequest
     EventLeaveRetry -> StateLeaveRequest ~> StateInside
     EventGrantLeave -> StateLeaveRequest ~> StateLeaving
+    EventLeaveDone -> StateLeaving ~> StateInitialized
     EventPredecessorLeaveRequest -> StateInside ~> StatePredecessorLeaveRequest
     EventPredecessorLeavePoint ->
         StatePredecessorLeaveRequest ~> StatePredecessorLeaving
@@ -202,7 +206,8 @@ StateJoinRequest --> StateJoinRequest: EventJoinRetry
 StateJoinRequest --> StateJoining: EventJoinPoint
 StateInitialized --> StateInside: EventSelfJoinDone
 StateJoining --> StateInside: EventJoinDone
-StateInside --> StateInside: "EventProcessingJoinRequest, EventNewSuccessor, EventNewSuccessorAck"
+StateInside --> StateInside: EventProcessingJoinRequest, EventNewSuccessor, EventNewSuccessorAck
+StateInside --> StateInitialized: EventSelfLeaveDone
 StateInside --> StateLeaveRequest: EventLeaveRequest
 StateLeaveRequest --> StateInside: EventLeaveRetry
 StateLeaveRequest --> StateLeaving: EventGrantLeave
@@ -210,7 +215,9 @@ StateInside --> StatePredecessorLeaveRequest: EventPredecessorLeaveRequest
 StatePredecessorLeaveRequest --> StatePredecessorLeaving: EventPredecessorLeavePoint
 StatePredecessorLeaving --> StateInside: EventPredecessorLeaveDone
 
-StateLeaving --> [*]
+StateLeaving --> StateInitialized: EventLeaveDone
+
+StateInitialized --> [*]
 
 @enduml
 -}
