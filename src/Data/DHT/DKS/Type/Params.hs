@@ -42,7 +42,7 @@ import Data.DHT.DKS.Type.Hash (DksHash)
 -- | Parameters that modify behaviour of a DKS node.
 data DksParams = DksParams
     { _runThread :: !(IO () -> IO ThreadId)
-    , _yield :: IO ()
+    , _yield :: !(IO ())
     , _logging :: !SomeLoggingBackend
 
     , _discovery :: !(EVarIO (Maybe DksHash))
