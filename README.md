@@ -6,7 +6,7 @@
 DHT implementation based on [Distributed k-ary System (DKS)][].
 
 
-## Generate State Diagram
+## Generate State and Sequence Diagrams
 
 Download [PlantUML][] from [its download page][PlantUML Download]. After that
 just run following command from root directory of this repository:

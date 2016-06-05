@@ -34,7 +34,6 @@ import Data.DHT.DKS.Type.Hash (DksHash)
 
 data UpdateSuccessor = UpdateSuccessor
     { _requester :: !DksHash
-    , _oldSuccessor :: !DksHash
     , _successor :: !DksHash
     }
   deriving (Eq, Generic, Show, Typeable)

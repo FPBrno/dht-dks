@@ -34,7 +34,6 @@ import Data.DHT.DKS.Type.Hash (DksHash)
 
 data LeaveDone = LeaveDone
     { _requester :: !DksHash
-    , _predecessor :: !DksHash
     }
   deriving (Eq, Generic, Show, Typeable)
 

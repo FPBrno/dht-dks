@@ -26,7 +26,7 @@ import Data.Either (Either(Left, Right))
 import Data.Eq (Eq((==)))
 import Data.Function (($), (.))
 import Data.Functor (Functor(fmap), {-(<$), -}(<$>))
-import Data.Maybe (Maybe(Nothing))
+import Data.Maybe (Maybe(Nothing), maybe)
 import System.IO (IO)
 import Text.Show (Show(showsPrec), showChar, shows, showString)
 
@@ -49,7 +49,7 @@ import Data.DHT.DKS.Internal.Monad
     , mkBoxedThreadState
 --  , registerOnInsertDoneCallback
     , registerOnJoinCallback
---  , registerOnLeaveCallback
+    , registerOnLeaveCallback
 --  , registerOnLookupResultCallback
     , runDksM
     , send_
@@ -76,13 +76,21 @@ import Data.DHT.DKS.Internal.Operation
     , OnJoin
     , OnLeave
     , OnResult
+    , handleGrantLeave
     , handleJoin
     , handleJoinDone
     , handleJoinPoint
     , handleJoinRequest
     , handleJoinRetry
+    , handleLeave
+    , handleLeaveDone
+    , handleLeavePoint
+    , handleLeaveRequest
+    , handleLeaveRetry
     , handleNewSuccessor
     , handleNewSuccessorAck
+    , handleUpdateSuccessor
+    , handleUpdateSuccessorAck
     )
 import Data.DHT.DKS.Type.State (DksState)
 import Data.DHT.DKS.Type.EVar
@@ -94,12 +102,19 @@ import Data.DHT.DKS.Type.Hash (DksHash)
 import Data.DHT.DKS.Type.Message
     ( DksMessage(DksMessage, _body, _header)
     , DksMessageBody
-        ( JoinDoneBody
+        ( GrantLeaveBody
+        , JoinDoneBody
         , JoinPointBody
         , JoinRequestBody
         , JoinRetryBody
+        , LeaveDoneBody
+        , LeavePointBody
+        , LeaveRequestBody
+        , LeaveRetryBody
         , NewSuccessorAckBody
         , NewSuccessorBody
+        , UpdateSuccessorAckBody
+        , UpdateSuccessorBody
         )
     , DksMessageHeader(_from, _to)
     )
@@ -184,9 +199,9 @@ threadMain self = \case
     JoinOp onJoin possiblyEntryNode ->
         registerOnJoinCallback onJoin >> handleJoin possiblyEntryNode
 
-    LeaveOp _possiblyOnLeave ->
---      registerOnLeaveCallback onLeave >> handleLeave
-        logf (hash % ": LeaveOp: Not implemented.") self
+    LeaveOp possiblyOnLeave -> do
+        maybe (return ()) registerOnLeaveCallback possiblyOnLeave
+        handleLeave
 
     LookupOp _onResult _key ->
 --      registerOnLookupResultCallback key onResult >> handleLookup key
@@ -215,7 +230,13 @@ threadMain self = \case
         NewSuccessorAckBody msg -> handleNewSuccessorAck msg
         JoinDoneBody msg -> handleJoinDone msg
 
-        _ -> return ()
+        LeaveRequestBody msg -> handleLeaveRequest msg
+        LeaveRetryBody msg -> handleLeaveRetry from msg
+        GrantLeaveBody msg -> handleGrantLeave from msg
+        LeavePointBody msg -> handleLeavePoint msg
+        UpdateSuccessorBody msg -> handleUpdateSuccessor msg
+        UpdateSuccessorAckBody msg -> handleUpdateSuccessorAck msg
+        LeaveDoneBody msg -> handleLeaveDone msg
 
 -- }}} Handle -----------------------------------------------------------------
 

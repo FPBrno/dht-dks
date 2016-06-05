@@ -69,6 +69,7 @@ data Event
     | EventLeaveRetry
     | EventGrantLeave
     | EventLeaveDone
+    | EventUpdateSuccessor
     | EventPredecessorLeaveRequest
     | EventPredecessorLeavePoint
     | EventPredecessorLeaveDone
@@ -153,7 +154,25 @@ dksStateTransitionFunction cur event = case event of
     EventJoinPoint -> StateJoinRequest ~> StateJoining
     EventJoinDone -> StateJoining ~> StateInside
     EventProcessingJoinRequest -> StateInside ~> StateInside
-    EventNewSuccessor -> StateInside ~> StateInside
+    EventNewSuccessor -> case cur of
+        StateInside -> signal cur Success
+
+        -- Things to the left from our node do not affect things that happen to
+        -- the right of us. Unless there are only two nodes in the network, in
+        -- which case the other one would be the one leaving, in which case new
+        -- (third) node is joining and this has to be allowed.
+        StatePredecessorLeaveRequest -> signal cur Success
+        StatePredecessorLeaving -> signal cur Success
+
+        -- Until node receives GrantLeave, it is safe to change a successor
+        -- node.
+        StateLeaveRequest -> signal cur Success
+
+        StateInitialized -> signal cur Failure
+        StateJoinRequest -> signal cur Failure
+        StateJoining -> signal cur Failure
+        StateLeaving -> signal cur Failure
+
     EventNewSuccessorAck -> StateInside ~> StateInside
     EventSelfLeaveDone -> StateInside ~> StateInitialized
     EventLeaveRequest -> StateInside ~> StateLeaveRequest
@@ -164,6 +183,22 @@ dksStateTransitionFunction cur event = case event of
     EventPredecessorLeavePoint ->
         StatePredecessorLeaveRequest ~> StatePredecessorLeaving
     EventPredecessorLeaveDone -> StatePredecessorLeaving ~> StateInside
+    EventUpdateSuccessor -> case cur of
+        StateInside -> signal cur Success
+
+        -- Once again things happening to the left of us are independent from
+        -- the things happening to our right, unless there are only two nodes
+        -- in the overlay. In that case we want to be able to become a
+        -- singleton.
+        StatePredecessorLeaveRequest -> signal cur Success
+        StatePredecessorLeaving -> signal cur Success
+
+        StateInitialized -> signal cur Failure
+        StateJoinRequest -> signal cur Failure
+        StateJoining -> signal cur Failure
+        StateLeaveRequest -> signal cur Failure
+        StateLeaving -> signal cur Failure
+
     EventReset -> signal StateInitialized Success
   where
     (~>) :: State -> State -> (State, Signal)
@@ -190,7 +225,8 @@ stepDksState event f s@DksState{_currentState = cur} =
 State diagram in PlantUML format, see http://plantuml.com/state.html for
 details.
 
-@startuml
+@startuml node-state.png
+title State diagram of a DKS node
 
 [*] --> StateInitialized
 
@@ -206,7 +242,6 @@ StateJoinRequest --> StateJoinRequest: EventJoinRetry
 StateJoinRequest --> StateJoining: EventJoinPoint
 StateInitialized --> StateInside: EventSelfJoinDone
 StateJoining --> StateInside: EventJoinDone
-StateInside --> StateInside: EventProcessingJoinRequest, EventNewSuccessor, EventNewSuccessorAck
 StateInside --> StateInitialized: EventSelfLeaveDone
 StateInside --> StateLeaveRequest: EventLeaveRequest
 StateLeaveRequest --> StateInside: EventLeaveRetry
@@ -214,8 +249,13 @@ StateLeaveRequest --> StateLeaving: EventGrantLeave
 StateInside --> StatePredecessorLeaveRequest: EventPredecessorLeaveRequest
 StatePredecessorLeaveRequest --> StatePredecessorLeaving: EventPredecessorLeavePoint
 StatePredecessorLeaving --> StateInside: EventPredecessorLeaveDone
-
 StateLeaving --> StateInitialized: EventLeaveDone
+
+StateInside --> StateInside: EventProcessingJoinRequest, EventNewSuccessor, EventNewSuccessorAck EventUpdateSuccessor
+
+StateLeaveRequest --> StateLeaveRequest: EventNewSuccessor
+StatePredecessorLeaveRequest --> StatePredecessorLeaveRequest: EventNewSuccessor, EventUpdateSuccessor
+StatePredecessorLeaving --> StatePredecessorLeaving: EventNewSuccessor, EventUpdateSuccessor
 
 StateInitialized --> [*]
 

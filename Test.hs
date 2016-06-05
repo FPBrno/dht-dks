@@ -107,6 +107,7 @@ networkMain l = do
             pushLogStrLn l $ format
                 ( "networkMain: Encountered failure when passing message to "
                 % " node: " % shown % ": " % shown) toNode e
+
 discoverNode :: DksHash -> EVarIO (Maybe DksHash)
 discoverNode node =
     atomicModifyIORef' state $ \s ->

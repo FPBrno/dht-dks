@@ -58,21 +58,58 @@ module Data.DHT.DKS.Internal.Operation
     , handleJoinDone
 
     -- * Leaving
+
+    -- ** Leave
     --
-    -- TODO
+    -- $leaveDefinition
+    , handleLeave
+
+    -- ** LeaveRequest
+    --
+    -- $leaveReqDefinition
+    , handleLeaveRequest
+
+    -- ** LeaveRetry
+    , handleLeaveRetry
+
+    -- ** GrantLeave
+    --
+    -- $grantLeaveDefinition
+    , handleGrantLeave
+
+    -- ** LeavePoint
+    --
+    -- $leavePointDefinition
+    , handleLeavePoint
+
+    -- ** UpdateSuccessor
+    --
+    -- $updateSuccessorDefinition
+    , handleUpdateSuccessor
+
+    -- ** UpdateSuccessorAck
+    --
+    -- $updateSuccessorAckDefinition
+    , handleUpdateSuccessorAck
+
+    -- ** LeaveDone
+    --
+    -- $leaveDoneDefinition
+    , handleLeaveDone
     )
   where
 
 import Control.Monad (Monad((>>=)), return)
 import Data.Bool (Bool(False, True), (&&), (||), not, otherwise)
 import Data.Eq (Eq((/=), (==)))
-import Data.Function (($), (.))
+import Data.Function (($), (.), const)
 import Data.Maybe (Maybe(Just, Nothing), maybe)
 import Data.Typeable (Typeable)
 import GHC.Generics (Generic)
 import Text.Show (Show(showsPrec), showString)
 import System.IO (IO)
 
+import Data.Default.Class (Default(def))
 import Data.LogStr.Formatting ((%), shown)
 
 import Data.DHT.Type.Encoding (Encoding)
@@ -92,6 +129,8 @@ import Data.DHT.DKS.Internal.Monad
     , hash
     , joinFailure
     , joinSuccess
+    , leaveFailure
+    , leaveSuccess
     , logf
     , predecessorChanged
     , send
@@ -107,6 +146,10 @@ import Data.DHT.DKS.Type.Message
     , DksMessageHeader(DksMessageHeader, _from, _to)
     , IsDksMessage(dksMessage)
     )
+import Data.DHT.DKS.Type.Message.GrantLeave (GrantLeave(GrantLeave))
+import qualified Data.DHT.DKS.Type.Message.GrantLeave as GrantLeave
+    ( GrantLeave(..)
+    )
 import Data.DHT.DKS.Type.Message.JoinDone (JoinDone(JoinDone))
 import qualified Data.DHT.DKS.Type.Message.JoinDone as JoinDone (JoinDone(..))
 import Data.DHT.DKS.Type.Message.JoinPoint (JoinPoint(JoinPoint))
@@ -121,6 +164,22 @@ import Data.DHT.DKS.Type.Message.JoinRetry (JoinRetry(JoinRetry))
 import qualified Data.DHT.DKS.Type.Message.JoinRetry as JoinRetry
     ( JoinRetry(..)
     )
+import Data.DHT.DKS.Type.Message.LeaveDone (LeaveDone(LeaveDone))
+import qualified Data.DHT.DKS.Type.Message.LeaveDone as LeaveDone
+    ( LeaveDone(..)
+    )
+import Data.DHT.DKS.Type.Message.LeavePoint (LeavePoint(LeavePoint))
+import qualified Data.DHT.DKS.Type.Message.LeavePoint as LeavePoint
+    ( LeavePoint(..)
+    )
+import Data.DHT.DKS.Type.Message.LeaveRequest (LeaveRequest(LeaveRequest))
+import qualified Data.DHT.DKS.Type.Message.LeaveRequest as LeaveRequest
+    ( LeaveRequest(..)
+    )
+import Data.DHT.DKS.Type.Message.LeaveRetry (LeaveRetry(LeaveRetry))
+import qualified Data.DHT.DKS.Type.Message.LeaveRetry as LeaveRetry
+    ( LeaveRetry(..)
+    )
 import Data.DHT.DKS.Type.Message.NewSuccessor (NewSuccessor(NewSuccessor))
 import qualified Data.DHT.DKS.Type.Message.NewSuccessor as NewSuccessor
     ( NewSuccessor(..)
@@ -130,6 +189,19 @@ import Data.DHT.DKS.Type.Message.NewSuccessorAck
     )
 import qualified Data.DHT.DKS.Type.Message.NewSuccessorAck as NewSuccessorAck
     ( NewSuccessorAck(..)
+    )
+import Data.DHT.DKS.Type.Message.UpdateSuccessor
+    ( UpdateSuccessor(UpdateSuccessor)
+    )
+import qualified Data.DHT.DKS.Type.Message.UpdateSuccessor as UpdateSuccessor
+    ( UpdateSuccessor(..)
+    )
+import Data.DHT.DKS.Type.Message.UpdateSuccessorAck
+    ( UpdateSuccessorAck(UpdateSuccessorAck)
+    )
+import qualified Data.DHT.DKS.Type.Message.UpdateSuccessorAck
+  as UpdateSuccessorAck
+    ( UpdateSuccessorAck(..)
     )
 import Data.DHT.DKS.Type.State
     ( DksState
@@ -142,13 +214,22 @@ import Data.DHT.DKS.Type.State
         , _successor
         )
     , Event
-        ( EventJoinDone
+        ( EventGrantLeave
+        , EventJoinDone
         , EventJoinPoint
         , EventJoinRequest
+        , EventLeaveDone
+        , EventLeaveRequest
+        , EventLeaveRetry
         , EventNewSuccessor
         , EventNewSuccessorAck
+        , EventPredecessorLeaveDone
+        , EventPredecessorLeavePoint
+        , EventPredecessorLeaveRequest
         , EventProcessingJoinRequest
         , EventSelfJoinDone
+        , EventSelfLeaveDone
+        , EventUpdateSuccessor
         )
     )
 
@@ -185,6 +266,7 @@ instance Show DksOperation where
       where
         brackets = (showString "<<" .) . (. showString ">>")
 
+-- {{{ Joining ----------------------------------------------------------------
 -- {{{ Join -------------------------------------------------------------------
 
 handleJoin :: Maybe DksHash -> DksM ()
@@ -250,7 +332,7 @@ handleJoinRequest from msg@JoinRequest{JoinRequest._requester = rqstr} = do
         , _predecessor = pred
         , _successor = succ
         , _leaveForward = leaveFwd
-        , _lock = lck
+        , _lock = locked
         } <- dksState
     self <- getSelf
 
@@ -277,13 +359,13 @@ handleJoinRequest from msg@JoinRequest{JoinRequest._requester = rqstr} = do
       -- Check if this node can accept join request and if not then
       -- forward it to successor in following cases:
       --
-      -- * Leaving is in progress.
-      -- * Node doesn't belong to the interval we are responsible for.
+      -- - Leaving is in progress.
+      -- - Node doesn't belong to the interval we are responsible for.
       | leaveFwd || responsibleForRequester self pred ->
             maybe sendJoinRetry forwardJoinRequestTo succ
 
       -- If node is inside a transaction, then send retry.
-      | lck == True -> sendJoinRetry
+      | locked -> sendJoinRetry
 
       | Just p <- pred -> do
             stepDksState EventProcessingJoinRequest $ \s -> s
@@ -301,7 +383,7 @@ handleJoinRequest from msg@JoinRequest{JoinRequest._requester = rqstr} = do
                     }
 
       -- pred == Nothing
-      | otherwise -> sendJoinRetry
+      | otherwise -> sendJoinRetry  -- TODO: What does this case mean?
   where
     responsibleForRequester self = maybe False $ \n ->
         let bounds = (Excluding self, Including n)
@@ -320,7 +402,7 @@ handleJoinRequest from msg@JoinRequest{JoinRequest._requester = rqstr} = do
 -- >   else if pred ≠ nil and d ∈ (n, pred] and pred ≠ n then
 -- >     # Paper doesn't include "pred ≠ n" condition. When "pred = n" then
 -- >     # (n, pred] = (n, n] = I and that causes node to forward join request
--- >     #to its self.
+-- >     # to itself.
 -- >     sendto succ.JoinReq(d)
 -- >   else
 -- >     if lock ≠ nil or pred = nil then
@@ -458,7 +540,72 @@ handleJoinDone JoinDone{} = handle joinFailure $ do
 
 -- }}} JoinDone ---------------------------------------------------------------
 
+{-
+Sequence diagram in PlantUML format see http://plantuml.net/sequence.html for
+details.
+
+@startuml node-joining-overlay.png
+
+title Node q joining DKS overlay network
+hide footbox
+
+participant "Node p" as P
+participant "Node q (joining)" as Q
+participant "Node r" as R
+
+Q -> R: JoinRequest
+loop while R locked
+  R -> Q: JoinRetry
+  ...
+  Q -> R: JoinRequest
+end
+R -> Q: JoinPoint
+Q -> P: NewSuccessor
+P -> R: NewSuccessorAck
+R -> Q: JoinDone
+
+@enduml
+-}
+
+-- }}} Joining ----------------------------------------------------------------
+
+-- {{{ Leaving ----------------------------------------------------------------
 -- {{{ Leave ------------------------------------------------------------------
+
+handleLeave :: DksM ()
+handleLeave = handle leaveFailure $ do
+    DksState
+        { _lock = locked
+        , _predecessor = possiblyPred
+        , _successor = possiblySucc
+        } <- dksState
+    self <- getSelf
+    if
+      | locked -> retryLeave
+
+        -- Singleton (only node in DHT overlay) can leave on its own. Note that
+        -- "succ == pred" does not guarantee that the node is a singleton. This
+        -- happens also when only two nodes are in a network.
+      | possiblyPred == possiblySucc && possiblyPred == Just self -> do
+            stepDksState EventSelfLeaveDone $ const def
+            logf (hash % ": Self leave done.") self
+            predecessorChanged possiblyPred Nothing
+            successorChanged possiblySucc Nothing
+            leaveSuccess
+
+      | Just succ <- possiblySucc -> do
+            stepDksState EventLeaveRequest $ \s -> s{_lock = True}
+            logf (hash % ": Sendign leave request to: " % hash) self succ
+            send $ dksMessage
+                DksMessageHeader{_to = succ, _from = self}
+                LeaveRequest{LeaveRequest._requester = self}
+            leaveSuccess
+
+        -- succ == Nothing
+      | otherwise -> retryLeave
+        -- TODO: What does this mean? Stabilization? Error?
+  where
+    retryLeave = return ()  -- TODO
 
 -- $leaveDefinition
 --
@@ -470,7 +617,7 @@ handleJoinDone JoinDone{} = handle joinFailure $ do
 -- >     noop                                # Line not in original paper.
 -- >   else
 -- >     status := leavereq
--- >     lock := true
+-- >     lock := taken
 -- >     sendto succ.LeaveReq()
 -- >   end if
 -- > end event
@@ -480,6 +627,23 @@ handleJoinDone JoinDone{} = handle joinFailure $ do
 -- }}} Leave ------------------------------------------------------------------
 
 -- {{{ LeaveRequest -----------------------------------------------------------
+
+handleLeaveRequest :: LeaveRequest -> DksM ()
+handleLeaveRequest LeaveRequest{LeaveRequest._requester = rqstr} = do
+    self <- getSelf
+    DksState{_lock = locked, _predecessor = pred} <- dksState
+    if not locked && pred == Just rqstr
+        then do
+            stepDksState EventPredecessorLeaveRequest $ \s -> s{_lock = True}
+            logf (hash % ": Granting leave to " % hash % ".") self rqstr
+            send $ dksMessage
+                DksMessageHeader{_to = rqstr, _from = self}
+                GrantLeave{GrantLeave._requester = rqstr}
+        else do
+            logf (hash % ": Unable to grant leave to " % hash % ".") self rqstr
+            send $ dksMessage
+                DksMessageHeader{_to = rqstr, _from = self}
+                LeaveRetry{LeaveRetry._requester = rqstr}
 
 -- $leaveReqDefinition
 --
@@ -497,7 +661,20 @@ handleJoinDone JoinDone{} = handle joinFailure $ do
 
 -- }}} LeaveRequest -----------------------------------------------------------
 
--- {{{ RetryLeave -------------------------------------------------------------
+-- {{{ LeaveRetry -------------------------------------------------------------
+
+handleLeaveRetry :: DksHash -> LeaveRetry -> DksM ()
+handleLeaveRetry from msg@LeaveRetry{LeaveRetry._requester = rqstr} = do
+    self <- getSelf
+    if rqstr == self
+        then do
+            stepDksState EventLeaveRetry $ \s -> s{_lock = False}
+            logf (hash % ": Our leave request wasn't granted.") self
+            retryLeave
+        else
+            send $ dksMessage DksMessageHeader{_to = rqstr, _from = from} msg
+  where
+    retryLeave = return ()  -- TODO
 
 -- $retryLeaveDefinition
 --
@@ -508,9 +685,33 @@ handleJoinDone JoinDone{} = handle joinFailure $ do
 --
 -- /Algorithm 9 Optimized atomic leave algorithm/ from page 70.
 
--- }}} RetryLeave -------------------------------------------------------------
+-- }}} LeaveRetry -------------------------------------------------------------
 
 -- {{{ GrantLeave -------------------------------------------------------------
+
+handleGrantLeave :: DksHash -> GrantLeave -> DksM ()
+handleGrantLeave from msg@GrantLeave{GrantLeave._requester = rqstr} = do
+    self <- getSelf
+    DksState{_predecessor = ppred, _successor = psucc} <- dksState
+    if
+      | rqstr == self, Just pred <- ppred, Just succ <- psucc -> do
+            stepDksState EventGrantLeave $ \s -> s{_leaveForward = True}
+            logf (hash % ": We have been granted a leave (GrantLeave).") self
+            logf (hash % ": Sending LeavePoint to successor " % hash % ".")
+                self succ
+            send $ dksMessage
+                DksMessageHeader{_to = succ, _from = self}
+                LeavePoint
+                    { LeavePoint._requester = self
+                    , LeavePoint._predecessor = pred
+                    }
+
+      -- We have received GrantLeave intended for someone else.
+      | rqstr /= self -> do
+            logf (hash % ": Passing grant leave to: " % hash) self rqstr
+            send $ dksMessage DksMessageHeader{_to = rqstr, _from = from} msg
+
+      | otherwise -> return ()  -- TODO: What does this mean?
 
 -- $grantLeaveDefinition
 --
@@ -523,3 +724,169 @@ handleJoinDone JoinDone{} = handle joinFailure $ do
 -- /Algorithm 9 Optimized atomic leave algorithm/ from page 70.
 
 -- }}} GrantLeave -------------------------------------------------------------
+
+-- {{{ LeavePoint -------------------------------------------------------------
+
+handleLeavePoint :: LeavePoint -> DksM ()
+handleLeavePoint msg@LeavePoint{LeavePoint._requester = rqstr} = do
+    oldPred <- fromDksState _predecessor
+    if oldPred /= Just rqstr
+        then return ()  -- TODO: What does this mean?
+        else do
+            self <- getSelf
+            let newPred = LeavePoint._predecessor msg
+            stepDksState EventPredecessorLeavePoint $ \s -> s
+                { _predecessor = Just newPred
+                , _oldPredecessor = oldPred
+                }
+            predecessorChanged oldPred (Just newPred)
+            logf (hash % ": Predecessor " % hash % " is leaving"
+                % "; sending UpdateSuccessor to our new predecessor " % hash
+                % ".") self rqstr newPred
+            send $ dksMessage
+                DksMessageHeader{_to = newPred, _from = self}
+                UpdateSuccessor
+                    { UpdateSuccessor._requester = rqstr
+                    , UpdateSuccessor._successor = self
+                    }
+
+-- $leavePointDefinition
+--
+-- > event n.LeavePoint(q) from m
+-- >   status := predleaving
+-- >   pred := q
+-- >   sendto pred.UpdateSucc()
+-- > end event
+--
+-- /Algorithm 10 Optimized atomic leave algorithm continued/ from page 71.
+
+-- }}} LeavePoint -------------------------------------------------------------
+
+-- {{{ UpdateSuccessor --------------------------------------------------------
+
+handleUpdateSuccessor :: UpdateSuccessor -> DksM ()
+handleUpdateSuccessor msg = do
+    let UpdateSuccessor
+            { UpdateSuccessor._requester = rqstr
+            , UpdateSuccessor._successor = newSucc
+            } = msg
+    fromDksState _successor >>= \case
+        Nothing      -> return ()   -- TODO: What does this mean?
+        Just oldSucc
+          | oldSucc /= rqstr -> return ()   -- TODO: What does this mean?
+          | otherwise        -> do
+                stepDksState EventUpdateSuccessor $ \s -> s
+                    { _successor = Just newSucc
+                    }
+                self <- getSelf
+                logf (hash % ": Successor changed from: " % hash % ", to: "
+                    % hash) self oldSucc newSucc
+                send $ dksMessage
+                    DksMessageHeader{_to = oldSucc, _from = self}
+                    UpdateSuccessorAck
+                        { UpdateSuccessorAck._requester = rqstr
+                        , UpdateSuccessorAck._oldSuccessor = oldSucc
+                        , UpdateSuccessorAck._successor = newSucc
+                        }
+
+-- $updateSuccessorDefinition
+--
+-- > event n.UpdateSucc() from m
+-- >   sendto succ.UpdateSuccAck()
+-- >   succ := m
+-- > end event
+--
+-- /Algorithm 10 Optimized atomic leave algorithm continued/ from page 71.
+
+-- }}} UpdateSuccessor --------------------------------------------------------
+
+-- {{{ UpdateSuccessorAck -----------------------------------------------------
+
+handleUpdateSuccessorAck :: UpdateSuccessorAck -> DksM ()
+handleUpdateSuccessorAck msg = do
+    let UpdateSuccessorAck
+            { UpdateSuccessorAck._requester = rqstr
+            , UpdateSuccessorAck._oldSuccessor = predOldSucc
+            , UpdateSuccessorAck._successor = predNewSucc
+            } = msg
+    fromDksState _successor >>= \case
+        Nothing   -> return ()  -- TODO: What does this mean?
+        Just succ -> do
+            self <- getSelf
+            if rqstr == self && predOldSucc == self && predNewSucc == succ
+                then do
+                    stepDksState EventLeaveDone $ const def
+                    send_ $ dksMessage
+                        DksMessageHeader{_to = succ, _from = self}
+                        LeaveDone{LeaveDone._requester = self}
+                    logf (hash % ": Successfully left the overlay.") self
+                    leaveSuccess
+                else return ()  -- TODL: What does this mean?
+
+-- $updateSuccessorAckDefinition
+--
+-- > event n.UpdateSuccessorAck() from m
+-- >   sendto succ.LeaveDone()              # Leave the system.
+-- > end event
+--
+-- /Algorithm 10 Optimized atomic leave algorithm continued/ from page 71.
+
+-- }}} UpdateSuccessorAck -----------------------------------------------------
+
+-- {{{ LeaveDone --------------------------------------------------------------
+
+handleLeaveDone :: LeaveDone -> DksM ()
+handleLeaveDone LeaveDone{LeaveDone._requester = rqstr} = do
+    oldPred <- fromDksState _oldPredecessor
+    self <- getSelf
+    if oldPred == Just rqstr
+        then do
+            logf (hash % ": Old predecessor left the overlay successfully: "
+                % hash) self rqstr
+            stepDksState EventPredecessorLeaveDone $ \s -> s{_lock = False}
+        else do
+            logf (hash % ": Discarding LeaveDone message from " % hash
+                % " that doesn't belong to our old predecessor " % shown) self
+                rqstr oldPred
+
+-- $leaveDoneDefinition
+--
+-- > event n.LeaveDone() from m
+-- >   lock := free
+-- >   status := inside
+-- > end event
+--
+-- /Algorithm 10 Optimized atomic leave algorithm continued/ from page 71.
+
+-- }}} LeaveDone --------------------------------------------------------------
+
+{-
+Sequence diagram in PlantUML format see http://plantuml.net/sequence.html for
+details.
+
+@startuml node-leaving-overlay.png
+
+title Node q leaving DKS overlay network
+hide footbox
+
+participant "Node p" as P
+participant "Node q (leaving)" as Q
+participant "Node r" as R
+
+Q -> R: LeaveRequest
+loop while R locked
+  R -> Q: LeaveRetry
+  ...
+  Q -> R: LeaveRequest
+end
+R -> Q: GrantLeave
+Q -> R: LeavePoint
+R -> P: UpdateSuccessor
+P -> Q: UpdateSuccessorAck
+Q -> R: LeaveDone
+destroy Q
+
+@enduml
+-}
+
+-- }}} Leaving ----------------------------------------------------------------
