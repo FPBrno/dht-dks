@@ -39,7 +39,7 @@ packages:
   - '.'
   - location:
       git: https://github.com/trskop/dht-api.git
-      commit: 68664bac61f239019e0358163b35de65a310732e
+      commit: 6789612469d94a82ba48f79be98c20234cff79af
     extra-dep: True
   - location:
       git: https://github.com/trskop/lumberjack.git
