@@ -12,7 +12,15 @@ category:               Data
 build-type:             Simple
 cabal-version:          >=1.10
 
-extra-source-files:     ChangeLog.md, README.md
+extra-source-files:     ChangeLog.md, README.md, doc/img/*.png
+
+-- Include generated diagrams in the documentation. For more information see
+-- following links:
+--
+-- * https://www.haskell.org/haddock/doc/html/ch03s08.html#idm140354810723168
+-- * http://www.skybluetrades.net/blog/posts/2014/02/21/haddock-images-on-haskell.html
+-- * https://stackoverflow.com/questions/14017112/images-in-haddock-documentation
+extra-doc-files:        doc/img/*.png
 
 flag pedantic
   description:          Pass additional warning flags to GHC.

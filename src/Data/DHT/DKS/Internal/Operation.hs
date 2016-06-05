@@ -7,22 +7,31 @@
 {-# LANGUAGE RankNTypes #-}
 -- |
 -- Module:       $HEADER$
--- Description:  TODO
+-- Description:  Operations (RPC calls and message handlers) of a DKS (DHT)
+--               node.
 -- Copyright:    (c) 2016 Peter Trško
 -- License:      BSD3
 --
 -- Stability:    experimental
 -- Portability:  GHC specific language extensions.
 --
--- TODO
+-- Operations (RPC calls and message handlers) of a DKS (DHT) node. Based on
+-- /Distributed k-ary System: Algorithms for Distributed Hash Tables/ by Ali
+-- Ghodsi.
 module Data.DHT.DKS.Internal.Operation
-    ( DksOperation(..)
+    (
+    -- * Operations that can be invoked on a DKS node
+      DksOperation(..)
+
+    -- ** Callbacks
     , OnJoin
     , OnLeave
     , OnResult
     , OnDone
 
     -- * Joining
+    --
+    -- $joining
 
     -- ** Join
     --
@@ -58,6 +67,8 @@ module Data.DHT.DKS.Internal.Operation
     , handleJoinDone
 
     -- * Leaving
+    --
+    -- $leaving
 
     -- ** Leave
     --
@@ -70,6 +81,8 @@ module Data.DHT.DKS.Internal.Operation
     , handleLeaveRequest
 
     -- ** LeaveRetry
+    --
+    -- $retryLeaveDefinition
     , handleLeaveRetry
 
     -- ** GrantLeave
@@ -234,25 +247,53 @@ import Data.DHT.DKS.Type.State
     )
 
 
+-- | Type of a callback invoked when node either failed to join the DHT overlay
+-- network or if it succeeded. Callback either gets an exception (see 'EVar'
+-- for details) or a pair @(predecessor, successor)@.
 type OnJoin = EVar (Maybe DksHash, Maybe DksHash) -> IO ()
+
+-- | Type of a callback invoked when node either failed to leave the DHT
+-- overlay or if it succeeded.
 type OnLeave = EVar () -> IO ()
 
 type OnResult a = EVar a -> IO ()
 type OnDone = OnResult ()
 
 
--- | Implementation notes for DksOperation:
+-- | DKS node receives events in the form of 'DksOperation's which are then
+-- processed by a specialized handlers.
+--
+-- Implementation notes for 'DksOperation':
 --
 -- * Callback should always be the first argument of a constructor, because it
---   is most likely to be boud first and the rest will probably be left free.
+--   is most likely to be bound first and the rest will probably be left free.
+--
+-- * Arguments should be strict, so that DKS node is not responsible for
+--   unneccessary evaluation.
 data DksOperation
     = JoinOp !OnJoin !(Maybe DksHash)
---  | JoinRetry !OnJoin !DksHash
+    -- ^ Application (in which DKS node is embedded) is requesting it to join a
+    -- DHT overlay using provided node as entry\/bootstrap node. If the
+    -- bootstrap node is 'Nothing' then the DKS node should self-join.
+
     | LeaveOp !(Maybe OnLeave)
+    -- ^ Application (in which DKS node is embedded) is requesting it to leave
+    -- a DHT overlay network.
+
     | LookupOp !(OnResult Encoding) !DhtKey
+    -- ^ Application (in which DKS node is embedded) is requesting it to lookup
+    -- a value in a DHT overlay network which it is part of.
+
     | InsertOp !(Maybe OnDone) !DhtKey !Encoding
+    -- ^ Application (in which DKS node is embedded) is requesting it to
+    -- insert\/store a key-value pair in a DHT.
+
     | ProcessMessageOp !(EVar DksMessage)
+    -- ^ Network layer has received a message for this DKS (DHT) node.
+
     | GetStateOp !(DksState -> IO ())
+    -- ^ Application (in which DKS node is embedded) is requesting it to
+    -- provide its current state. Useful for debugging.
   deriving (Generic, Typeable)
 
 instance Show DksOperation where
@@ -289,7 +330,7 @@ handleJoin = handle joinFailure . \case
         -- their default value, which is Nothing.
         stepDksState EventJoinRequest $ \s -> s{_lock = True}
         self <- getSelf
-        logf (hash % ": Sending join request to " % hash) self node
+        logf (hash % ": Sending join request to " % hash % ".") self node
         send $ dksMessage
             DksMessageHeader{_to = node, _from = self}
             JoinRequest{JoinRequest._requester = self}
@@ -341,13 +382,13 @@ handleJoinRequest from msg@JoinRequest{JoinRequest._requester = rqstr} = do
             JoinRetry{JoinRetry._requester = rqstr}
 
         sendJoinRetry = do
-            logf (hash % ": Respond with retry join: " % shown % " to: "
-                % hash) self joinRetry from
+            logf (hash % ": Respond with JoinRetry " % shown % " to "
+                % hash % ".") self joinRetry from
             send_ joinRetry
 
         forwardJoinRequestTo n = do
-            logf (hash % ": Forwarding join request: " % shown % " to: "
-                % hash) self msg n
+            logf (hash % ": Forwarding JoinRequest " % shown % " to "
+                % hash % ".") self msg n
             send_ $ dksMessage DksMessageHeader{_to = n, _from = from} msg
 
     if
@@ -357,11 +398,8 @@ handleJoinRequest from msg@JoinRequest{JoinRequest._requester = rqstr} = do
             forwardJoinRequestTo p
 
       -- Check if this node can accept join request and if not then
-      -- forward it to successor in following cases:
-      --
-      -- - Leaving is in progress.
-      -- - Node doesn't belong to the interval we are responsible for.
-      | leaveFwd || responsibleForRequester self pred ->
+      -- forward it to successor.
+      | leaveFwd || notResponsibleForRequester self pred ->
             maybe sendJoinRetry forwardJoinRequestTo succ
 
       -- If node is inside a transaction, then send retry.
@@ -374,6 +412,7 @@ handleJoinRequest from msg@JoinRequest{JoinRequest._requester = rqstr} = do
                 , _oldPredecessor = _predecessor s
                 , _predecessor = Just rqstr
                 }
+            logf (hash % ": Sending JoinPoint to " % hash % ".") self rqstr
             send_ $ dksMessage
                 DksMessageHeader{_to = rqstr, _from = self}
                 JoinPoint
@@ -385,7 +424,8 @@ handleJoinRequest from msg@JoinRequest{JoinRequest._requester = rqstr} = do
       -- pred == Nothing
       | otherwise -> sendJoinRetry  -- TODO: What does this case mean?
   where
-    responsibleForRequester self = maybe False $ \n ->
+    notResponsibleForRequester self = maybe False $ \n ->
+        -- (n, pred] actually is I \ [pred, n)
         let bounds = (Excluding self, Including n)
         -- isWholeSpace bounds = True <==> (Excluding self, Including self),
         -- i.e. we are the only node in the DHT and therefore responsible for
@@ -429,8 +469,8 @@ handleJoinPoint msg@JoinPoint{JoinPoint._requester = rqstr} = do
     if rqstr /= self
         -- Message is not for us, and we are unable (node is not inside the
         -- DHT) to forward it.
-        then logf (hash % ": Received JoinPoint which is not intended for us."
-            % " Message discarded: " % shown) self msg
+        then logf (hash % ": Received JoinPoint which is not intended for us;"
+            % " message discarded " % shown % ".") self msg
         else do
             let JoinPoint
                     { JoinPoint._predecessor = pred
@@ -505,6 +545,7 @@ handleNewSuccessorAck NewSuccessorAck{NewSuccessorAck._requester = rqstr} =
                 , _joinForward = False
                 }
             self <- getSelf
+            logf (hash % ": Sending JoinDone to " % hash % ".") self rqstr
             send $ dksMessage
                 DksMessageHeader{_to = rqstr, _from = self}
                 JoinDone
@@ -529,6 +570,10 @@ handleJoinDone :: JoinDone -> DksM ()
 handleJoinDone JoinDone{} = handle joinFailure $ do
     stepDksState EventJoinDone $ \s -> s{_lock = False}
     (pred, succ) <- fromDksState $ \s -> (_predecessor s, _successor s)
+    self <- getSelf
+    logf (hash % ": Successfully joined DHT network (JoinDone); "
+        % "our predecessor is " % shown % " and successor is " % shown % ".")
+        self pred succ
     joinSuccess pred succ
 
 -- $joinDoneDefinition
@@ -540,9 +585,17 @@ handleJoinDone JoinDone{} = handle joinFailure $ do
 
 -- }}} JoinDone ---------------------------------------------------------------
 
+-- $joining
+--
+-- <<doc/img/node-joining-overlay.png Sequence diagram: Node joining overlay>>
+--
+-- Based on /Figure 3.7 Thime-space diagram of the successful join of a node/
+-- from page 68.
+
 {-
 Sequence diagram in PlantUML format see http://plantuml.net/sequence.html for
-details.
+details. For information about embedded PlantUML documents see
+http://plantuml.com/sources.html
 
 @startuml node-joining-overlay.png
 
@@ -554,7 +607,7 @@ participant "Node q (joining)" as Q
 participant "Node r" as R
 
 Q -> R: JoinRequest
-loop while R locked
+loop while R locked or predecessor = nil
   R -> Q: JoinRetry
   ...
   Q -> R: JoinRequest
@@ -595,7 +648,7 @@ handleLeave = handle leaveFailure $ do
 
       | Just succ <- possiblySucc -> do
             stepDksState EventLeaveRequest $ \s -> s{_lock = True}
-            logf (hash % ": Sendign leave request to: " % hash) self succ
+            logf (hash % ": Sendign LeaveRequest to " % hash % ".") self succ
             send $ dksMessage
                 DksMessageHeader{_to = succ, _from = self}
                 LeaveRequest{LeaveRequest._requester = self}
@@ -610,11 +663,11 @@ handleLeave = handle leaveFailure $ do
 -- $leaveDefinition
 --
 -- > event n.Leave() from app
--- >   if lock ≠ free then                   # Application should try again
--- >                                         #   later.
--- >     noop                                # Line not in original paper
--- >   else if succ = pred and succ = n then # Last node, can quit.
--- >     noop                                # Line not in original paper.
+-- >   if lock ≠ free then
+-- >     # Application should try again later.
+-- >     noop                                   # Line not in original paper
+-- >   else if succ = pred and succ = n then    # Last node, can quit.
+-- >     noop                                   # Line not in original paper.
 -- >   else
 -- >     status := leavereq
 -- >     lock := taken
@@ -635,12 +688,12 @@ handleLeaveRequest LeaveRequest{LeaveRequest._requester = rqstr} = do
     if not locked && pred == Just rqstr
         then do
             stepDksState EventPredecessorLeaveRequest $ \s -> s{_lock = True}
-            logf (hash % ": Granting leave to " % hash % ".") self rqstr
+            logf (hash % ": GrantLeave to " % hash % ".") self rqstr
             send $ dksMessage
                 DksMessageHeader{_to = rqstr, _from = self}
                 GrantLeave{GrantLeave._requester = rqstr}
         else do
-            logf (hash % ": Unable to grant leave to " % hash % ".") self rqstr
+            logf (hash % ": Unable to GrantLeave to " % hash % ".") self rqstr
             send $ dksMessage
                 DksMessageHeader{_to = rqstr, _from = self}
                 LeaveRetry{LeaveRetry._requester = rqstr}
@@ -669,9 +722,12 @@ handleLeaveRetry from msg@LeaveRetry{LeaveRetry._requester = rqstr} = do
     if rqstr == self
         then do
             stepDksState EventLeaveRetry $ \s -> s{_lock = False}
-            logf (hash % ": Our leave request wasn't granted.") self
+            logf (hash % ": LeaveRetry: Our leave request wasn't granted.")
+                self
             retryLeave
-        else
+        else do
+            logf (hash % ": Received LeaveRetry for someone else, "
+                % "resending to intended recipient " % hash % ".") self rqstr
             send $ dksMessage DksMessageHeader{_to = rqstr, _from = from} msg
   where
     retryLeave = return ()  -- TODO
@@ -779,8 +835,8 @@ handleUpdateSuccessor msg = do
                     { _successor = Just newSucc
                     }
                 self <- getSelf
-                logf (hash % ": Successor changed from: " % hash % ", to: "
-                    % hash) self oldSucc newSucc
+                logf (hash % ": Successor changed from " % hash % " to "
+                    % hash % ".") self oldSucc newSucc
                 send $ dksMessage
                     DksMessageHeader{_to = oldSucc, _from = self}
                     UpdateSuccessorAck
@@ -860,9 +916,17 @@ handleLeaveDone LeaveDone{LeaveDone._requester = rqstr} = do
 
 -- }}} LeaveDone --------------------------------------------------------------
 
+-- $leaving
+--
+-- <<doc/img/node-leaving-overlay.png Sequence diagram: Node leaving overlay>>
+--
+-- Based on /Figure 3.8 Thime-space diagram of the successful leave of a node/
+-- from page 72.
+
 {-
 Sequence diagram in PlantUML format see http://plantuml.net/sequence.html for
-details.
+details. For information about embedded PlantUML documents see
+http://plantuml.com/sources.html
 
 @startuml node-leaving-overlay.png
 

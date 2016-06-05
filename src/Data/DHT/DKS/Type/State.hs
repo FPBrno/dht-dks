@@ -5,21 +5,31 @@
 {-# LANGUAGE TupleSections #-}
 -- |
 -- Module:       $HEADER$
--- Description:  TODO
+-- Description:  State of a DKS node.
 -- Copyright:    (c) 2015 Jan Šipr, Matej Kollár, 2015-2016 Peter Trško
 -- License:      BSD3
 --
 -- Stability:    experimental
 -- Portability:  GHC specific language extensions.
 --
--- TODO
+-- State of a DKS node.
 module Data.DHT.DKS.Type.State
-    ( State(..)
+    (
+    -- $stateDiagram
+
+    -- * State of a DKS Node
+      DksState(..)
+    , stepDksState
+
+    -- ** States
+    , State(..)
+
+    -- ** Events
     , Event(..)
+
+    -- ** Signals
     , Signal(..)
     , SignalInfo(..)
-    , DksState(..)
-    , stepDksState
     )
   where
 
@@ -40,6 +50,7 @@ import Data.DHT.DKS.Type.Hash (DksHash)
 
 -- {{{ State and Event --------------------------------------------------------
 
+-- | Current state of a DKS node. See '_currentState' field of 'DksState'.
 data State
     = StateInitialized
     | StateJoinRequest
@@ -55,6 +66,7 @@ data State
 instance Default State where
     def = StateInitialized
 
+-- | Events initiate state transition of 'DksState'.
 data Event
     = EventSelfJoinDone
     | EventJoinRequest
@@ -117,18 +129,54 @@ data SignalInfo = SignalInfo
 
 -- {{{ DksState ---------------------------------------------------------------
 
+-- | State of a DKS node that fully describes its current situation and
+-- relation to other nodes in the overlay circle.
 data DksState = DksState
     { _currentState :: !State
-    -- ^ 'State' in which this instance of 'State' machine currently is.
+    -- ^ Symbolic 'State' in which this instance of DKS node currently is, i.e.
+    -- status of this DKS node. This field can not be modified directly, only
+    -- via state transition as described in the state diagram. Any attempt at
+    -- modification will be discarded by 'stepDksState'.
+
     , _lock :: !Bool
+    -- ^ DKS node lock is acquired during some transitions. It is used as an
+    -- indicator of predecessor join/leave transaction.
+
     , _leaveForward :: !Bool
+    -- ^ This node is leaving DKS overlay; any join requests will be forwarded
+    -- to our successor.
+
     , _joinForward :: !Bool
+    -- ^ Our future predecessor is joining the overlay; forward join requests.
+
     , _predecessor :: !(Maybe DksHash)
+    -- ^ Current predecessor of this DKS node. Initiated as 'Nothing' when in
+    -- 'StateInitialized', but can be set to 'Nothing' during network
+    -- stabilization algorithm.
+
     , _oldPredecessor :: !(Maybe DksHash)
+    -- ^ Previous predecessor of this DKS node. Note that referenced node may
+    -- not be in the overlay anymore.
+
     , _successor :: !(Maybe DksHash)
+    -- ^ Current successor of this DKS node. Initiated as 'Nothing' when in
+    -- 'StateInitialized', but can be set to 'Nothing' during network
+    -- stabilization algorithm.
     }
   deriving (Generic, Show, Typeable)
 
+-- |
+-- @
+-- def = 'DksState'
+--     { '_currentState' = def  -- = 'StateInitialized'
+--     , '_lock' = False
+--     , '_leaveForward' = False
+--     , '_joinForward' = False
+--     , '_predecessor' = Nothing
+--     , '_oldPredecessor' = Nothing
+--     , '_successor' = Nothing
+--     }
+-- @
 instance Default DksState where
     def = DksState
         { _currentState = def
@@ -209,11 +257,19 @@ dksStateTransitionFunction cur event = case event of
     signal :: State -> (SignalInfo -> Signal) -> (State, Signal)
     signal state f = (state, f (SignalInfo event cur state))
 
+-- | Safely modify 'DksState'.
 stepDksState
     :: Event
+    -- ^ 'Event' triggering a state transition.
     -> E DksState
+    -- ^ Function that modifies 'DksState' iff the state transition is
+    -- successful. Any attempt at modification of '_currentState' is discarded.
     -> DksState
+    -- ^ Current value of 'DksState'.
     -> (DksState, Signal)
+    -- ^ Next value of 'DksState' (after state transition) and a 'Signal' that
+    -- indicated what state transition occurred. 'Signal' is very useful for
+    -- debugging and error reporting.
 stepDksState event f s@DksState{_currentState = cur} =
     case dksStateTransitionFunction cur event of
         (_next, sig@(Failure _)) -> (s, sig)
@@ -221,9 +277,19 @@ stepDksState event f s@DksState{_currentState = cur} =
 
 -- }}} DksState ---------------------------------------------------------------
 
+-- $stateDiagram
+--
+-- <<doc/img/node-state.png State diagram of a DKS node>>
+--
+-- Based on /Figure 3.6 State transition diagram/ from
+-- /Distributed k-ary System: Algorithms for Distributed Hash Tables/ (page 64)
+-- by Ali Ghodsi.
+
 {-
+
 State diagram in PlantUML format, see http://plantuml.com/state.html for
-details.
+details. For information about embedded PlantUML documents see
+http://plantuml.com/sources.html
 
 @startuml node-state.png
 title State diagram of a DKS node
